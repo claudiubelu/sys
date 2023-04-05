@@ -1088,6 +1088,20 @@ type EXPLICIT_ACCESS struct {
 	Trustee           TRUSTEE
 }
 
+// https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-ace_header
+type ACE_HEADER struct {
+	AceType  uint8
+	AceFlags uint8
+	AceSize  uint16
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-access_allowed_ace
+type ACCESS_ALLOWED_ACE struct {
+	Header   ACE_HEADER
+	Mask     ACCESS_MASK
+	Sid      SID
+}
+
 // This type is the union inside of TRUSTEE and must be created using one of the TrusteeValueFrom* functions.
 type TrusteeValue uintptr
 
@@ -1159,6 +1173,7 @@ type OBJECTS_AND_NAME struct {
 //sys	makeSelfRelativeSD(absoluteSD *SECURITY_DESCRIPTOR, selfRelativeSD *SECURITY_DESCRIPTOR, selfRelativeSDSize *uint32) (err error) = advapi32.MakeSelfRelativeSD
 
 //sys	setEntriesInAcl(countExplicitEntries uint32, explicitEntries *EXPLICIT_ACCESS, oldACL *ACL, newACL **ACL) (ret error) = advapi32.SetEntriesInAclW
+//sys	getAceFromAcl(acl *ACL, aceIndex uint32, pAce **ACCESS_ALLOWED_ACE) (ret error) = advapi32.GetAce
 
 // Control returns the security descriptor control bits.
 func (sd *SECURITY_DESCRIPTOR) Control() (control SECURITY_DESCRIPTOR_CONTROL, revision uint32, err error) {
@@ -1441,4 +1456,22 @@ func ACLFromEntries(explicitEntries []EXPLICIT_ACCESS, mergedACL *ACL) (acl *ACL
 	aclBytes := make([]byte, winHeapACL.aclSize)
 	copy(aclBytes, (*[(1 << 31) - 1]byte)(unsafe.Pointer(winHeapACL))[:len(aclBytes):len(aclBytes)])
 	return (*ACL)(unsafe.Pointer(&aclBytes[0])), nil
+}
+
+func GetACEsFromACL(acl *ACL) (aces []*ACCESS_ALLOWED_ACE, err error) {
+	aces = make([]*ACCESS_ALLOWED_ACE, acl.aceCount)
+	var ace *ACCESS_ALLOWED_ACE
+
+	for i := uint16(0); i < acl.aceCount; i++ {
+		err = getAceFromAcl(acl, i, &ace)
+		if err != nil {
+			return []*ACCESS_ALLOWED_ACE{}, err
+		}
+
+		aceBytes := make([]byte, ace.Header.AceSize)
+		copy(aceBytes, (*[(1 << 31) - 1]byte)(unsafe.Pointer(ace))[:len(aceBytes):len(aceBytes)]
+		aces[i] = (*ACCESS_ALLOWED_ACE)(unsafe.Pointer(&aceBytes[0]))
+	}
+
+	return aces, nil
 }
